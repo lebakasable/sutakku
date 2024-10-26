@@ -22,6 +22,60 @@ fn arg_next(name Str) Str {
    return str_from_cstr(argv[args_start - 1])
 }
 
+fn substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
+   match nodes[stmt].kind {
+      NODE_VAR => {
+         let new = node_new(NODE_VAR, nodes[stmt].token)
+         nodes[new].nodes[NODE_VAR_TYPE] = if(nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_VAR_TYPE])
+         nodes[new].nodes[NODE_VAR_BODY] = substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, nodes[new].nodes[NODE_VAR_TYPE])
+         return new
+      }
+      NODE_RULE => {
+         let new = node_new(NODE_RULE, nodes[stmt].token)
+         nodes[new].nodes[NODE_RULE_STATE] = if(nodes[nodes[stmt].nodes[NODE_RULE_STATE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_STATE])
+         nodes[new].nodes[NODE_RULE_READ] = if(nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_READ])
+         nodes[new].nodes[NODE_RULE_WRITE] = if(nodes[nodes[stmt].nodes[NODE_RULE_WRITE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_WRITE])
+         nodes[new].nodes[NODE_RULE_STEP] = nodes[stmt].nodes[NODE_RULE_STEP]
+         nodes[new].nodes[NODE_RULE_NEXT] = if(nodes[nodes[stmt].nodes[NODE_RULE_NEXT]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_NEXT])
+         return new
+      }
+      else => assert false
+   }
+   return 0
+}
+
+struct Triple {
+   write Node_Index
+   step Node_Index
+   next Node_Index
+}
+
+fn match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
+   match nodes[stmt].kind {
+      NODE_VAR => {
+         let type = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]]
+         for let symbol = type.nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
+            if match_state(substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, symbol), state, read, triple) {
+               return true
+            }
+         }
+         return false
+      }
+      NODE_RULE => {
+         if nodes[nodes[stmt].nodes[NODE_RULE_STATE]].token.str == nodes[state].token.str && nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.str == nodes[read].token.str {
+            triple.write = nodes[stmt].nodes[NODE_RULE_WRITE]
+            triple.step = nodes[stmt].nodes[NODE_RULE_STEP]
+            triple.next = nodes[stmt].nodes[NODE_RULE_NEXT]
+            return true
+         } else {
+            return false
+         }
+      }
+      else => assert false
+   }
+   return false
+}
+
 struct Tape {
    data *Node_Index
    count int
@@ -50,14 +104,14 @@ struct Machine {
 }
 
 fn machine_next(machine *Machine) {
-   for let i = 0, i < rules_count, i += 1 {
-      let rule = nodes[rules[i]]
-      if nodes[machine.state].token.str == nodes[rule.nodes[NODE_RULE_STATE]].token.str && nodes[machine.tape.data[machine.head]].token.str == nodes[rule.nodes[NODE_RULE_READ]].token.str {
-         machine.tape.data[machine.head] = rule.nodes[NODE_RULE_WRITE]
-         match nodes[rule.nodes[NODE_RULE_STEP]].token.kind {
+   for let i = 0, i < stmts_count, i += 1 {
+      let triple Triple
+      if match_state(stmts[i], machine.state, machine.tape.data[machine.head], &triple) {
+         machine.tape.data[machine.head] = triple.write
+         match nodes[triple.step].token.kind {
             TOKEN_LARROW => {
                if machine.head == 0 {
-                  &stderr << nodes[rule.nodes[NODE_RULE_STEP]].token.pos << "error: tape underflow\n"
+                  &stderr << nodes[triple.step].token.pos << "error: tape underflow\n"
                   exit(1)
                }
                machine.head -= 1
@@ -70,7 +124,7 @@ fn machine_next(machine *Machine) {
             }
             else => assert false
          }
-         machine.state = rule.nodes[NODE_RULE_NEXT]
+         machine.state = triple.next
          machine.halt = false
          break
       }

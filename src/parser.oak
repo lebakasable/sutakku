@@ -8,10 +8,17 @@ alias Node_Kind int
 const (
    NODE_ATOM
 
+   NODE_TYPE
+   NODE_VAR
    NODE_RULE
    NODE_RUN
    COUNT_NODES
 )
+
+const NODE_TYPE_SYMBOLS = 0
+
+const NODE_VAR_TYPE = 0
+const NODE_VAR_BODY = 1
 
 const NODE_RULE_STATE = 0
 const NODE_RULE_READ = 1
@@ -51,14 +58,34 @@ fn node_list_push(list *Node_Index, node Node_Index) *Node_Index {
    return list
 }
 
-const RULES_CAP = 1024
-let rules [RULES_CAP]Node_Index
-let rules_count int
+const TYPES_CAP = 1024
+let types [TYPES_CAP]Node_Index
+let types_count int
 
-fn rules_push(node Node_Index) {
-   assert rules_count < RULES_CAP
-   rules[rules_count] = node
-   rules_count += 1
+fn types_push(node Node_Index) {
+   assert types_count < TYPES_CAP
+   types[types_count] = node
+   types_count += 1
+}
+
+fn types_find(name Str, index *int) bool {
+   for let i = 0, i < types_count, i += 1 {
+      if nodes[types[i]].token.str == name {
+         *index = i
+         return true
+      }
+   }
+   return false
+}
+
+const STMTS_CAP = 1024
+let stmts [STMTS_CAP]Node_Index
+let stmts_count int
+
+fn stmts_push(node Node_Index) {
+   assert stmts_count < STMTS_CAP
+   stmts[stmts_count] = node
+   stmts_count += 1
 }
 
 fn error_unexpected(token Token) {
@@ -66,25 +93,67 @@ fn error_unexpected(token Token) {
    exit(1)
 }
 
-assert COUNT_TOKENS == 8
+assert COUNT_TOKENS == 11
 fn parse_atom() Node_Index {
    let node Node_Index
    let token = lexer_next()
 
    match token.kind {
-      TOKEN_SYM => node = node_new(NODE_ATOM, token)
+      TOKEN_SYMBOL => node = node_new(NODE_ATOM, token)
       else => error_unexpected(token)
    }
 
    return node
 }
 
-assert COUNT_TOKENS == 8
+assert COUNT_TOKENS == 11
 fn parse_stmt() Node_Index {
    let node Node_Index
    let token = lexer_next()
 
    match token.kind {
+      TOKEN_TYPE => {
+         let name = lexer_expect(TOKEN_SYMBOL)
+         node = node_new(NODE_TYPE, name)
+
+         let index int
+         if types_find(name.str, &index) {
+            &stderr << name.pos << "error: redefinition of type '" << name.str << "'\n"
+            exit(1)
+         }
+
+         lexer_expect(TOKEN_LBRACE)
+         if lexer_read(TOKEN_RBRACE) {
+            &stderr << token.pos << "error: types can't be empty\n"
+            exit(1)
+         }
+
+         let symbols = &nodes[node].nodes[NODE_TYPE_SYMBOLS]
+         for true {
+            symbols = node_list_push(symbols, parse_atom())
+            if lexer_read(TOKEN_RBRACE) {
+               break
+            }
+         }
+
+         types_push(node)
+      }
+      TOKEN_VAR => {
+         node = node_new(NODE_VAR, lexer_expect(TOKEN_SYMBOL))
+         lexer_expect(TOKEN_COLON)
+
+         let type = lexer_expect(TOKEN_SYMBOL)
+         let index int
+         if types_find(type.str, &index) {
+            nodes[node].nodes[NODE_VAR_TYPE] = types[index]
+         } else {
+            &stdout << type.pos << "error: unknown type '" << type.str << "'\n"
+            exit(1)
+         }
+         
+         nodes[node].nodes[NODE_VAR_BODY] = parse_stmt()
+         stmts_push(node)
+      }
       TOKEN_RULE => {
          node = node_new(NODE_RULE, token)
          nodes[node].nodes[NODE_RULE_STATE] = parse_atom()
@@ -93,22 +162,21 @@ fn parse_stmt() Node_Index {
          let step = lexer_either(TOKEN_LARROW, TOKEN_RARROW)
          nodes[node].nodes[NODE_RULE_STEP] = node_new(NODE_ATOM, step)
          nodes[node].nodes[NODE_RULE_NEXT] = parse_atom()
-         rules_push(node)
+         stmts_push(node)
       }
       TOKEN_RUN => {
          node = node_new(NODE_RUN, token)
          nodes[node].nodes[NODE_RUN_STATE] = parse_atom()
 
          lexer_expect(TOKEN_LBRACE)
-
          if lexer_read(TOKEN_RBRACE) {
-            &stderr << token.pos << "error: tape can't be empty\n"
+            &stderr << token.pos << "error: tapes can't be empty\n"
             exit(1)
          }
 
-         let atoms = &nodes[node].nodes[NODE_RUN_TAPE]
+         let tape = &nodes[node].nodes[NODE_RUN_TAPE]
          for true {
-            atoms = node_list_push(atoms, parse_atom())
+            tape = node_list_push(tape, parse_atom())
             if lexer_read(TOKEN_RBRACE) {
                break
             }

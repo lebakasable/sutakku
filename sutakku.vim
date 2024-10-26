@@ -15,7 +15,7 @@ setlocal commentstring=#%s
 syntax match Comment "#.*" contains=Todo
 syntax region Comment start="##" end="##" contains=Todo
 syntax keyword Todo TODO XXX FIXME NOTE
-syntax keyword Keyword rule run
-syntax match Operator "\(<-\|->\)"
+syntax keyword Keyword rule run type var
+syntax match Operator "<-\|->"
 
 let b:current_syntax = "sutakku"
