@@ -23,26 +23,26 @@ fn arg_next(name Str) Str {
 }
 
 struct Tape {
-   data *Token
+   data *Node_Index
    count int
    capacity int
 }
 
 fn tape_new() Tape {
    let tape Tape
-   tape.data = 0 as *Token
+   tape.data = 0 as *Node_Index
    tape.count = 0
    tape.capacity = 0
    return tape
 }
 
-fn [<<](tape *Tape, token Token) *Tape {
-   *(array_push(&tape.data as **char, &tape.count, &tape.capacity, sizeof(Token)) as *Token) = token
+fn [<<](tape *Tape, node Node_Index) *Tape {
+   *(array_push(&tape.data as **char, &tape.count, &tape.capacity, sizeof(Node_Index)) as *Node_Index) = node
    return tape
 }
 
 struct Machine {
-   state Token
+   state Node_Index
    tape Tape
    head int
    halt bool
@@ -51,8 +51,8 @@ struct Machine {
 fn machine_next(machine *Machine) {
    for let i = 0, i < rules_count, i += 1 {
       let rule = nodes[rules[i]]
-      if machine.state.str == nodes[rule.nodes[NODE_RULE_STATE]].token.str && machine.tape.data[machine.head].str == nodes[rule.nodes[NODE_RULE_READ]].token.str {
-         machine.tape.data[machine.head] = nodes[rule.nodes[NODE_RULE_WRITE]].token
+      if nodes[machine.state].token.str == nodes[rule.nodes[NODE_RULE_STATE]].token.str && nodes[machine.tape.data[machine.head]].token.str == nodes[rule.nodes[NODE_RULE_READ]].token.str {
+         machine.tape.data[machine.head] = rule.nodes[NODE_RULE_WRITE]
          match nodes[rule.nodes[NODE_RULE_STEP]].token.kind {
             TOKEN_LARROW => {
                if machine.head == 0 {
@@ -66,7 +66,7 @@ fn machine_next(machine *Machine) {
             }
             else => assert false
          }
-         machine.state = nodes[rule.nodes[NODE_RULE_NEXT]].token
+         machine.state = rule.nodes[NODE_RULE_NEXT]
          machine.halt = false
          break
       }
@@ -75,13 +75,13 @@ fn machine_next(machine *Machine) {
 
 fn machine_print(machine *Machine) {
    arena.size = 0
-   &arena << machine.state.str << ": "
+   &arena << nodes[machine.state].token.str << ": "
    let head = 0
    for let i = 0, i < machine.tape.count, i += 1 {
       if i == machine.head {
          head = arena.size
       }
-      &arena << machine.tape.data[i].str << " "
+      &arena << nodes[machine.tape.data[i]].token.str << " "
    }
    &stdout << str_from_arena(arena) << '\n'
    for let i = 0, i < head, i += 1 { &stdout << ' ' }
@@ -95,16 +95,16 @@ fn main() {
    for !lexer_read(TOKEN_EOF) {
       let stmt = parse_stmt()
       if nodes[stmt].kind == NODE_RUN {
-         &stdout << nodes[stmt].token.pos << "run:\n"
+         &stdout << nodes[stmt].token.pos << "\n"
 
          let machine Machine
-         machine.state = nodes[nodes[stmt].nodes[NODE_RUN_STATE]].token
+         machine.state = nodes[stmt].nodes[NODE_RUN_STATE]
          machine.tape = tape_new()
          machine.head = 0
          machine.halt = false
 
          for let atom = nodes[stmt].nodes[NODE_RUN_TAPE], atom != 0, atom = nodes[atom].next {
-            &machine.tape << nodes[atom].token
+            &machine.tape << atom
          }
 
          for !machine.halt {
