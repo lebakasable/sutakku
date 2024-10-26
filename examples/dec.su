@@ -1,0 +1,4 @@
+rule Dec 1 0 -> Halt
+rule Dec 0 1 -> Dec
+
+run Dec { 0 0 0 0 1 0 }
