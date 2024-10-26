@@ -1,0 +1,4 @@
+rule Inc 0 1 -> Halt
+rule Inc 1 0 -> Inc
+
+run { 1 1 1 0 1 }

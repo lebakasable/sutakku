@@ -1,0 +1,117 @@
+use std.io
+use std.array
+use std.arena
+use src.parser
+
+let arena Arena
+
+fn usage(f *File) {
+   f << "Usage: sutakku RULES TAPE\n"
+}
+
+let args_start int
+
+fn arg_next(name Str) Str {
+   if args_start == argc {
+      usage(&stderr)
+      &stderr << "\nerror: " << name << " not provided\n"
+      exit(1)
+   }
+
+   args_start += 1
+   return str_from_cstr(argv[args_start - 1])
+}
+
+struct Tape {
+   data *Token
+   count int
+   capacity int
+}
+
+fn tape_new() Tape {
+   let tape Tape
+   tape.data = 0 as *Token
+   tape.count = 0
+   tape.capacity = 0
+   return tape
+}
+
+fn [<<](tape *Tape, token Token) *Tape {
+   *(array_push(&tape.data as **char, &tape.count, &tape.capacity, sizeof(Token)) as *Token) = token
+   return tape
+}
+
+struct Machine {
+   state Token
+   tape Tape
+   head int
+   halt bool
+}
+
+fn machine_next(machine *Machine) {
+   for let i = 0, i < rules_count, i += 1 {
+      let rule = nodes[rules[i]]
+      if machine.state.str == nodes[rule.nodes[NODE_RULE_STATE]].token.str && machine.tape.data[machine.head].str == nodes[rule.nodes[NODE_RULE_READ]].token.str {
+         machine.tape.data[machine.head] = nodes[rule.nodes[NODE_RULE_WRITE]].token
+         match nodes[rule.nodes[NODE_RULE_STEP]].token.kind {
+            TOKEN_LARROW => {
+               if machine.head == 0 {
+                  &stderr << nodes[rule.nodes[NODE_RULE_STEP]].token.pos << "error: tape underflow\n"
+                  exit(1)
+               }
+               machine.head -= 1
+            }
+            TOKEN_RARROW => {
+               machine.head += 1
+            }
+            else => assert false
+         }
+         machine.state = nodes[rule.nodes[NODE_RULE_NEXT]].token
+         machine.halt = false
+         break
+      }
+   }
+}
+
+fn machine_print(machine *Machine) {
+   arena.size = 0
+   &arena << machine.state.str << ": "
+   let head = 0
+   for let i = 0, i < machine.tape.count, i += 1 {
+      if i == machine.head {
+         head = arena.size
+      }
+      &arena << machine.tape.data[i].str << " "
+   }
+   &stdout << str_from_arena(arena) << '\n'
+   for let i = 0, i < head, i += 1 { &stdout << ' ' }
+   &stdout << "^\n"
+}
+
+fn main() {
+   let rules_path = arg_next("rules")
+   lexer_open(rules_path.data)
+
+   for !lexer_read(TOKEN_EOF) {
+      let stmt = parse_stmt()
+      if nodes[stmt].kind == NODE_RUN {
+         &stdout << nodes[stmt].token.pos << "run:\n"
+
+         let machine Machine
+         machine.state = token_new(TOKEN_SYM) << "Inc"
+         machine.tape = tape_new()
+         machine.head = 0
+         machine.halt = false
+
+         for let atom = nodes[stmt].nodes[NODE_RUN_TAPE], atom != 0, atom = nodes[atom].next {
+            &machine.tape << nodes[atom].token
+         }
+
+         for !machine.halt {
+            machine_print(&machine)
+            machine.halt = true
+            machine_next(&machine)
+         }
+      }
+   }
+}

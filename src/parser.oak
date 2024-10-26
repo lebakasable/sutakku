@@ -1,0 +1,118 @@
+use std.arena
+use std.array
+use src.lexer
+
+alias Node_Index int
+
+alias Node_Kind int
+const (
+   NODE_ATOM
+
+   NODE_RULE
+   NODE_RUN
+   COUNT_NODES
+)
+
+const NODE_RULE_STATE = 0
+const NODE_RULE_READ = 1
+const NODE_RULE_WRITE = 2
+const NODE_RULE_STEP = 3
+const NODE_RULE_NEXT = 4
+
+const NODE_RUN_TAPE = 0
+
+struct Node {
+   kind Node_Kind
+   token Token
+
+   nodes [5]Node_Index
+   next Node_Index
+}
+
+const NODES_CAP = 16000
+let nodes [NODES_CAP]Node
+let nodes_count int
+
+fn node_new(kind Node_Kind, token Token) Node_Index {
+   assert nodes_count < NODES_CAP
+   nodes[nodes_count].kind = kind
+   nodes[nodes_count].token = token
+   nodes_count += 1
+   return nodes_count - 1
+}
+
+fn node_list_push(list *Node_Index, node Node_Index) *Node_Index {
+   if *list != 0 {
+      list = &nodes[*list].next
+   }
+
+   *list = node
+   return list
+}
+
+const RULES_CAP = 1024
+let rules [RULES_CAP]Node_Index
+let rules_count int
+
+fn rules_push(node Node_Index) {
+   assert rules_count < RULES_CAP
+   rules[rules_count] = node
+   rules_count += 1
+}
+
+fn error_unexpected(token Token) {
+   &stderr << token.pos << "error: unexpected " << str_from_token_kind(token.kind) << "\n"
+   exit(1)
+}
+
+assert COUNT_TOKENS == 8
+fn parse_atom() Node_Index {
+   let node Node_Index
+   let token = lexer_next()
+
+   match token.kind {
+      TOKEN_SYM => node = node_new(NODE_ATOM, token)
+      else => error_unexpected(token)
+   }
+
+   return node
+}
+
+assert COUNT_TOKENS == 8
+fn parse_stmt() Node_Index {
+   let node Node_Index
+   let token = lexer_next()
+
+   match token.kind {
+      TOKEN_RULE => {
+         node = node_new(NODE_RULE, token)
+         nodes[node].nodes[NODE_RULE_STATE] = parse_atom()
+         nodes[node].nodes[NODE_RULE_READ] = parse_atom()
+         nodes[node].nodes[NODE_RULE_WRITE] = parse_atom()
+         let step = lexer_either(TOKEN_LARROW, TOKEN_RARROW)
+         nodes[node].nodes[NODE_RULE_STEP] = node_new(NODE_ATOM, step)
+         nodes[node].nodes[NODE_RULE_NEXT] = parse_atom()
+         rules_push(node)
+      }
+      TOKEN_RUN => {
+         node = node_new(NODE_RUN, token)
+         lexer_expect(TOKEN_LBRACE)
+
+         if lexer_read(TOKEN_RBRACE) {
+            &stderr << token.pos << "error: tape can't be empty\n"
+            exit(1)
+         }
+
+         let atoms = &nodes[node].nodes[NODE_RUN_TAPE]
+         for true {
+            atoms = node_list_push(atoms, parse_atom())
+            if lexer_read(TOKEN_RBRACE) {
+               break
+            }
+         }
+      }
+      else => error_unexpected(token)
+   }
+
+   return node
+}
