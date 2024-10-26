@@ -19,7 +19,8 @@ const NODE_RULE_WRITE = 2
 const NODE_RULE_STEP = 3
 const NODE_RULE_NEXT = 4
 
-const NODE_RUN_TAPE = 0
+const NODE_RUN_STATE = 0
+const NODE_RUN_TAPE = 1
 
 struct Node {
    kind Node_Kind
@@ -96,6 +97,8 @@ fn parse_stmt() Node_Index {
       }
       TOKEN_RUN => {
          node = node_new(NODE_RUN, token)
+         nodes[node].nodes[NODE_RUN_STATE] = parse_atom()
+
          lexer_expect(TOKEN_LBRACE)
 
          if lexer_read(TOKEN_RBRACE) {

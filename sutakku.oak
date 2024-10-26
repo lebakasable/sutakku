@@ -98,7 +98,7 @@ fn main() {
          &stdout << nodes[stmt].token.pos << "run:\n"
 
          let machine Machine
-         machine.state = token_new(TOKEN_SYM) << "Inc"
+         machine.state = nodes[nodes[stmt].nodes[NODE_RUN_STATE]].token
          machine.tape = tape_new()
          machine.head = 0
          machine.halt = false
