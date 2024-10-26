@@ -44,6 +44,7 @@ fn [<<](tape *Tape, node Node_Index) *Tape {
 struct Machine {
    state Node_Index
    tape Tape
+   tape_default Node_Index
    head int
    halt bool
 }
@@ -63,6 +64,9 @@ fn machine_next(machine *Machine) {
             }
             TOKEN_RARROW => {
                machine.head += 1
+               if machine.head >= machine.tape.count {
+                  &machine.tape << machine.tape_default
+               }
             }
             else => assert false
          }
@@ -105,6 +109,9 @@ fn main() {
 
          for let atom = nodes[stmt].nodes[NODE_RUN_TAPE], atom != 0, atom = nodes[atom].next {
             &machine.tape << atom
+            if nodes[atom].next == 0 {
+               machine.tape_default = atom
+            }
          }
 
          for !machine.halt {
