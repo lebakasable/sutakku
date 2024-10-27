@@ -4,7 +4,12 @@ use std.arena
 use src.parser
 
 fn usage(f *File) {
-   f << "Usage: sutakku RULES TAPE\n"
+   f << "Usage:\n"
+   f << "  sutakku CMD FILE\n"
+   f << "Commands:\n"
+   f << "  help          Print this help and exit\n"
+   f << "  run           Run the program\n"
+   f << "  expand        Expand all program rules\n"
 }
 
 let args_start int
@@ -173,7 +178,6 @@ fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *
       NODE_VAR => {
          for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
             bindings.count = 0
-
             if expr_pattern_match(nodes[stmt].nodes[NODE_VAR_NAME], expr, &bindings) {
                let subs_body = nodes[stmt].nodes[NODE_VAR_BODY]
                for let i = 0, i < bindings.count, i += 1 {
@@ -203,6 +207,36 @@ fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *
       else => assert false
    }
    return false
+}
+
+fn stmt_expand(stmt Node_Index) {
+   match nodes[stmt].kind {
+      NODE_BLOCK => {
+         for let stmt = nodes[stmt].nodes[NODE_BLOCK_STMTS], stmt != 0, stmt = nodes[stmt].next {
+            stmt_expand(stmt)
+         }
+      }
+      NODE_VAR => {
+         for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
+            bindings.count = 0
+            if expr_pattern_match(nodes[stmt].nodes[NODE_VAR_NAME], expr, &bindings) {
+               let subs_body = nodes[stmt].nodes[NODE_VAR_BODY]
+               for let i = 0, i < bindings.count, i += 1 {
+                  subs_body = stmt_substitute(subs_body, bindings.data[i].name, bindings.data[i].value)
+               }
+               stmt_expand(subs_body)
+            } else {
+               &stderr << nodes[nodes[stmt].nodes[NODE_VAR_NAME]].token.pos << "error: '" << str_from_expr(nodes[stmt].nodes[NODE_VAR_NAME]) << "' does not match '" << str_from_expr(expr) << "' from type '" << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str << "'\n"
+               &stderr << nodes[expr].token.pos << "note: the expression is located here\n"
+               exit(1)
+            }
+         }
+      }
+      NODE_RULE => {
+         &stdout << "rule " << str_from_expr(nodes[stmt].nodes[NODE_RULE_STATE]) << " " << str_from_expr(nodes[stmt].nodes[NODE_RULE_READ]) << " " << str_from_expr(nodes[stmt].nodes[NODE_RULE_WRITE]) << " " << str_from_expr(nodes[stmt].nodes[NODE_RULE_ACTION]) << " " << str_from_expr(nodes[stmt].nodes[NODE_RULE_NEXT]) << "\n"
+      }
+      else => assert false
+   }
 }
 
 struct Tape {
@@ -279,9 +313,8 @@ fn machine_next(machine *Machine) {
    }
 }
 
-fn main() {
-   let rules_path = arg_next("rules")
-   lexer_open(rules_path.data)
+fn mode_run(path Str) {
+   lexer_open(path.data)
 
    for !lexer_read(TOKEN_EOF) {
       let stmt = parse_stmt()
@@ -296,10 +329,10 @@ fn main() {
          machine.head = 0
          machine.halt = false
 
-         for let atom = nodes[stmt].nodes[NODE_RUN_TAPE], atom != 0, atom = nodes[atom].next {
-            &machine.tape << atom
-            if nodes[atom].next == 0 {
-               machine.tape_default = atom
+         for let expr = nodes[stmt].nodes[NODE_RUN_TAPE], expr != 0, expr = nodes[expr].next {
+            &machine.tape << expr
+            if nodes[expr].next == 0 {
+               machine.tape_default = expr
             }
          }
 
@@ -311,5 +344,45 @@ fn main() {
             machine_next(&machine)
          }
       }
+   }
+}
+
+fn mode_expand(path Str) {
+   lexer_open(path.data)
+
+   for !lexer_read(TOKEN_EOF) {
+      let stmt = parse_stmt()
+      match nodes[stmt].kind {
+         NODE_BLOCK, NODE_VAR, NODE_RULE => stmt_expand(stmt)
+         NODE_RUN => {
+            if nodes[stmt].token.data as bool {
+               &stdout << "trace "
+            } else {
+               &stdout << "run "
+            }
+
+            &stdout << str_from_expr(nodes[stmt].nodes[NODE_RUN_STATE]) << " { "
+            for let expr = nodes[stmt].nodes[NODE_RUN_TAPE], expr != 0, expr = nodes[expr].next {
+               &stdout << str_from_expr(expr) << " "
+            }
+            &stdout << "}"
+         }
+      }
+   }
+}
+
+fn main() {
+   let command = arg_next("command")
+   if command == "help" {
+      usage(&stdout)
+      exit(0)
+   } else if command == "run" {
+      mode_run(arg_next("file"))
+   } else if command == "expand" {
+      mode_expand(arg_next("file"))
+   } else {
+      usage(&stderr)
+      &stderr << "\nerror: invalid command '" << command << "'\n"
+      exit(1)
    }
 }
