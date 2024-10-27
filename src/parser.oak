@@ -194,7 +194,12 @@ fn parse_stmt() Node_Index {
 
          let exprs = &nodes[node].nodes[NODE_TYPE_EXPRS]
          for true {
-            exprs = node_list_push(exprs, parse_expr())
+            let expr = parse_expr()
+            if node_list_find(*exprs, expr) {
+               &stderr << nodes[expr].token.pos << "error: types must contain only unique values\n"
+               exit(1)
+            }
+            exprs = node_list_push(exprs, expr)
             if lexer_read(TOKEN_RBRACE) {
                break
             }
