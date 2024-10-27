@@ -66,7 +66,7 @@ fn str_from_expr(expr Node_Index) Str {
 
 fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Index {
    match nodes[expr].kind {
-      NODE_ATOM => return node_new(NODE_ATOM, if(nodes[expr].token.str == nodes[name].token.str, nodes[symbol].token, nodes[expr].token))
+      NODE_ATOM => return node_new(NODE_ATOM, if(expr_equals(expr, name), nodes[symbol].token, nodes[expr].token))
       NODE_LIST => {
          let new = node_new(NODE_LIST, nodes[expr].token)
          let new_elements = &nodes[new].nodes[NODE_LIST_ELEMENTS]
@@ -84,6 +84,7 @@ fn stmt_substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Ind
    match nodes[stmt].kind {
       NODE_VAR => {
          let new = node_new(NODE_VAR, nodes[stmt].token)
+         nodes[new].nodes[NODE_VAR_NAME] = nodes[stmt].nodes[NODE_VAR_NAME]
          nodes[new].nodes[NODE_VAR_TYPE] = nodes[stmt].nodes[NODE_VAR_TYPE]
          nodes[new].nodes[NODE_VAR_BODY] = stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], name, symbol)
          return new
@@ -111,9 +112,8 @@ struct Triple {
 fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
    match nodes[stmt].kind {
       NODE_VAR => {
-         let type = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]]
-         for let symbol = type.nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
-            if stmt_match_state(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, symbol), state, read, triple) {
+         for let symbol = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
+            if stmt_match_state(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], nodes[stmt].nodes[NODE_VAR_NAME], symbol), state, read, triple) {
                return true
             }
          }
@@ -174,10 +174,8 @@ fn machine_print(machine *Machine) {
       &arena << str_from_expr(machine.tape.data[i]) << " "
    }
    &stdout << str_from_arena(arena) << '\n'
-   ##
    for let i = 0, i < head, i += 1 { &stdout << ' ' }
    &stdout << "^\n"
-   ##
 }
 
 fn machine_next(machine *Machine) {

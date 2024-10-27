@@ -20,8 +20,9 @@ const NODE_LIST_ELEMENTS = 0
 
 const NODE_TYPE_SYMBOLS = 0
 
-const NODE_VAR_TYPE = 0
-const NODE_VAR_BODY = 1
+const NODE_VAR_NAME = 0
+const NODE_VAR_TYPE = 1
+const NODE_VAR_BODY = 2
 
 const NODE_RULE_STATE = 0
 const NODE_RULE_READ = 1
@@ -91,6 +92,9 @@ fn stmts_push(node Node_Index) {
    stmts_count += 1
 }
 
+let var_names [1024]Node_Index
+let var_names_count int
+
 fn error_unexpected(token Token) {
    &stderr << token.pos << "error: unexpected " << str_from_token_kind(token.kind) << "\n"
    exit(1)
@@ -158,8 +162,16 @@ fn parse_stmt() Node_Index {
          types_push(node)
       }
       TOKEN_VAR => {
-         node = node_new(NODE_VAR, lexer_expect(TOKEN_SYMBOL))
-         lexer_expect(TOKEN_COLON)
+         node = node_new(NODE_VAR, token)
+
+         var_names_count = 0
+         for true {
+            var_names[var_names_count] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
+            var_names_count += 1
+            if lexer_read(TOKEN_COLON) {
+               break
+            }
+         }
 
          let type = lexer_expect(TOKEN_SYMBOL)
          let index int
@@ -170,7 +182,15 @@ fn parse_stmt() Node_Index {
             exit(1)
          }
          
-         nodes[node].nodes[NODE_VAR_BODY] = parse_stmt()
+         node = parse_stmt()
+         for let i = var_names_count - 1, i >= 0, i -= 1 {
+            let new_var = node_new(NODE_VAR, token)
+            nodes[new_var].nodes[NODE_VAR_NAME] = var_names[i]
+            nodes[new_var].nodes[NODE_VAR_TYPE] = types[index]
+            nodes[new_var].nodes[NODE_VAR_BODY] = node
+            node = new_var
+         }
+         
          stmts_push(node)
       }
       TOKEN_RULE => {

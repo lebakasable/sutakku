@@ -2,13 +2,13 @@ type Bit { . # }
 
 rule Entry & & -> I
 
-var a: Bit rule I a a -> (I a)
-var a: Bit var b: Bit rule (I a) b b -> (I a b)
-var a: Bit var b: Bit var c: Bit rule (I a b) c c <- (R a b c)
-var a: Bit var b: Bit rule (I a b) & & . Print
+var a: Bit     rule I       a a -> (I a)
+var a b: Bit   rule (I a)   b b -> (I a b)
+var a b c: Bit rule (I a b) c c <- (R a b c)
+var a b: Bit   rule (I a b) & & . Print
 
-rule Print & & ! Skip
-rule Skip & & <- Reset
+rule Print & & !  Skip
+rule Skip  & & <- Reset
 var a: Bit rule Reset a a <- Reset
 rule Reset & & -> I
 
