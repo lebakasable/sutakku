@@ -19,7 +19,7 @@ const (
 
 const NODE_LIST_ELEMENTS = 0
 
-const NODE_TYPE_SYMBOLS = 0
+const NODE_TYPE_EXPRS = 0
 
 const NODE_BLOCK_STMTS = 0
 
@@ -154,9 +154,9 @@ fn parse_stmt() Node_Index {
             exit(1)
          }
 
-         let symbols = &nodes[node].nodes[NODE_TYPE_SYMBOLS]
+         let exprs = &nodes[node].nodes[NODE_TYPE_EXPRS]
          for true {
-            symbols = node_list_push(symbols, node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL)))
+            exprs = node_list_push(exprs, parse_expr())
             if lexer_read(TOKEN_RBRACE) {
                break
             }
@@ -185,7 +185,7 @@ fn parse_stmt() Node_Index {
 
          var_names_count = 0
          for true {
-            var_names[var_names_count] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
+            var_names[var_names_count] = parse_expr()
             var_names_count += 1
             if lexer_read(TOKEN_COLON) {
                break

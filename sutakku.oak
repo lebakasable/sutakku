@@ -80,6 +80,47 @@ fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Ind
    return 0
 }
 
+struct Binding {
+   name Node_Index
+   value int
+}
+
+struct Bindings {
+   data *Binding
+   count int
+   capacity int
+}
+
+fn bindings_new() Bindings {
+   let bindings Bindings
+   bindings.data = 0 as *Binding
+   bindings.count = 0
+   bindings.capacity = 0
+   return bindings
+}
+
+fn expr_pattern_match(pattern Node_Index, value Node_Index, bindings *Bindings) bool {
+   if nodes[pattern].kind == NODE_ATOM {
+      let binding Binding
+      binding.name = pattern
+      binding.value = value
+      *(array_push(&bindings.data as **char, &bindings.count, &bindings.capacity, sizeof(Binding)) as *Binding) = binding
+      return true
+   } else if nodes[pattern].kind == NODE_LIST && nodes[pattern].kind == NODE_LIST {
+      let pattern_element = nodes[pattern].nodes[NODE_LIST_ELEMENTS]
+      let value_element = nodes[value].nodes[NODE_LIST_ELEMENTS]
+      for pattern_element != 0 && value_element != 0 {
+         if !expr_pattern_match(pattern_element, value_element, bindings) {
+            return false
+         }
+         pattern_element = nodes[pattern_element].next
+         value_element = nodes[value_element].next
+      }
+      return pattern_element == 0 && value_element == 0
+   }
+   return false
+}
+
 fn stmt_substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
    match nodes[stmt].kind {
       NODE_BLOCK => {
@@ -117,6 +158,8 @@ struct Triple {
    next Node_Index
 }
 
+let bindings = bindings_new()
+
 fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
    match nodes[stmt].kind {
       NODE_BLOCK => {
@@ -128,9 +171,21 @@ fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *
          return false
       }
       NODE_VAR => {
-         for let symbol = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
-            if stmt_match_state(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], nodes[stmt].nodes[NODE_VAR_NAME], symbol), state, read, triple) {
-               return true
+         for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
+            bindings.count = 0
+
+            if expr_pattern_match(nodes[stmt].nodes[NODE_VAR_NAME], expr, &bindings) {
+               let subs_body = nodes[stmt].nodes[NODE_VAR_BODY]
+               for let i = 0, i < bindings.count, i += 1 {
+                  subs_body = stmt_substitute(subs_body, bindings.data[i].name, bindings.data[i].value)
+               }
+               if stmt_match_state(subs_body, state, read, triple) {
+                  return true
+               }
+            } else {
+               &stderr << nodes[nodes[stmt].nodes[NODE_VAR_NAME]].token.pos << "error: '" << str_from_expr(nodes[stmt].nodes[NODE_VAR_NAME]) << "' does not match '" << str_from_expr(expr) << "' from type '" << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str << "'\n"
+               &stderr << nodes[expr].token.pos << "note: the expression is located here\n"
+               exit(1)
             }
          }
          return false
