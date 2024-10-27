@@ -8,6 +8,7 @@ alias Node_Kind int
 const (
    NODE_ATOM
    NODE_LIST
+   NODE_EVAL
 
    NODE_TYPE
    NODE_BLOCK
@@ -18,6 +19,10 @@ const (
 )
 
 const NODE_LIST_ELEMENTS = 0
+
+const NODE_EVAL_LHS = 0
+const NODE_EVAL_OP = 1
+const NODE_EVAL_RHS = 2
 
 const NODE_TYPE_EXPRS = 0
 
@@ -114,7 +119,7 @@ fn error_unexpected(token Token) {
    exit(1)
 }
 
-assert COUNT_TOKENS == 13
+assert COUNT_TOKENS == 15
 fn parse_atom() Node_Index {
    let node Node_Index
    let token = lexer_next()
@@ -127,7 +132,7 @@ fn parse_atom() Node_Index {
    return node
 }
 
-assert COUNT_TOKENS == 13
+assert COUNT_TOKENS == 15
 fn parse_expr() Node_Index {
    let node Node_Index
    let token = lexer_next()
@@ -149,6 +154,13 @@ fn parse_expr() Node_Index {
             }
          }
       }
+      TOKEN_LBRACKET => {
+         node = node_new(NODE_EVAL, token)
+         nodes[node].nodes[NODE_EVAL_LHS] = parse_expr()
+         nodes[node].nodes[NODE_EVAL_OP] = parse_atom()
+         nodes[node].nodes[NODE_EVAL_RHS] = parse_expr()
+         lexer_expect(TOKEN_RBRACKET)
+      }
       else => {
          lexer_buffer(token)
          node = parse_atom()
@@ -158,7 +170,7 @@ fn parse_expr() Node_Index {
    return node
 }
 
-assert COUNT_TOKENS == 13
+assert COUNT_TOKENS == 15
 fn parse_stmt() Node_Index {
    let node Node_Index
    let token = lexer_next()

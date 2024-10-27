@@ -51,6 +51,7 @@ fn expr_equals(a Node_Index, b Node_Index) bool {
          }
          return a_element == 0 && b_element == 0
       }
+      NODE_EVAL => return expr_equals(nodes[a].nodes[NODE_EVAL_LHS], nodes[b].nodes[NODE_EVAL_LHS]) && expr_equals(nodes[a].nodes[NODE_EVAL_RHS], nodes[b].nodes[NODE_EVAL_RHS]) && nodes[nodes[a].nodes[NODE_EVAL_RHS]].token.str == nodes[nodes[b].nodes[NODE_EVAL_OP]].token.str
       else => assert false
    }
    return false
@@ -70,6 +71,16 @@ fn str_from_expr(expr Node_Index) Str {
             }
          }
          &arena << ")"
+         let str = str_from_arena(arena)
+         arena.size = 0
+         return str
+      }
+      NODE_EVAL => {
+         &arena << "["
+         &arena << str_from_expr(nodes[expr].nodes[NODE_EVAL_LHS])
+         &arena << " " << str_from_expr(nodes[expr].nodes[NODE_EVAL_OP]) << " "
+         &arena << str_from_expr(nodes[expr].nodes[NODE_EVAL_RHS])
+         &arena << "]"
          let str = str_from_arena(arena)
          arena.size = 0
          return str
@@ -94,6 +105,17 @@ fn expr_find_atom(expr Node_Index, name Node_Index, atom *Node_Index) bool {
             }
          }
       }
+      NODE_EVAL => {
+         if expr_find_atom(nodes[expr].nodes[NODE_EVAL_LHS], name, atom) {
+            return true
+         }
+         if expr_find_atom(nodes[expr].nodes[NODE_EVAL_OP], name, atom) {
+            return true
+         }
+         if expr_find_atom(nodes[expr].nodes[NODE_EVAL_RHS], name, atom) {
+            return true
+         }
+      }
       else => assert false
    }
    return false
@@ -108,6 +130,13 @@ fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Ind
          for let element = nodes[expr].nodes[NODE_LIST_ELEMENTS], element != 0, element = nodes[element].next {
             new_elements = node_list_push(new_elements, expr_substitute(element, name, symbol))
          }
+         return new
+      }
+      NODE_EVAL => {
+         let new = node_new(NODE_EVAL, nodes[expr].token)
+         nodes[new].nodes[NODE_EVAL_LHS] = expr_substitute(nodes[expr].nodes[NODE_EVAL_LHS], name, symbol)
+         nodes[new].nodes[NODE_EVAL_OP] = expr_substitute(nodes[expr].nodes[NODE_EVAL_OP], name, symbol)
+         nodes[new].nodes[NODE_EVAL_RHS] = expr_substitute(nodes[expr].nodes[NODE_EVAL_RHS], name, symbol)
          return new
       }
       else => assert false
@@ -184,8 +213,58 @@ fn expr_pattern_match(name Node_Index, value Node_Index, scope *Scope, bindings 
          b = nodes[b].next
       }
       return a == 0 && b == 0
+   } else if nodes[name].kind == NODE_EVAL && nodes[name].kind == NODE_EVAL {
+      if !expr_pattern_match(nodes[name].nodes[NODE_EVAL_LHS], nodes[value].nodes[NODE_EVAL_LHS], scope, bindings) {
+         return false
+      }
+      if !expr_pattern_match(nodes[name].nodes[NODE_EVAL_OP], nodes[value].nodes[NODE_EVAL_OP], scope, bindings) {
+         return false
+      }
+      if !expr_pattern_match(nodes[name].nodes[NODE_EVAL_RHS], nodes[value].nodes[NODE_EVAL_RHS], scope, bindings) {
+         return false
+      }
+      return true
    }
    return false
+}
+
+fn expr_force_evals(expr Node_Index) Node_Index {
+   match nodes[expr].kind {
+      NODE_ATOM => return expr
+      NODE_LIST => {
+         let new = node_new(NODE_LIST, nodes[expr].token)
+         let new_elements = &nodes[new].nodes[NODE_LIST_ELEMENTS]
+         for let element = nodes[expr].nodes[NODE_LIST_ELEMENTS], element != 0, element = nodes[element].next {
+            new_elements = node_list_push(new_elements, expr_force_evals(element))
+         }
+         return new
+      }
+      NODE_EVAL => {
+         if nodes[nodes[expr].nodes[NODE_EVAL_LHS]].token.kind == TOKEN_INTEGER {
+            if nodes[nodes[expr].nodes[NODE_EVAL_RHS]].token.kind == TOKEN_INTEGER {
+               let token Token
+               token.kind = TOKEN_INTEGER
+               token.pos = nodes[expr].token.pos
+               if nodes[nodes[expr].nodes[NODE_EVAL_OP]].token.str == "+" {
+                  token.data = nodes[nodes[expr].nodes[NODE_EVAL_LHS]].token.data + nodes[nodes[expr].nodes[NODE_EVAL_RHS]].token.data
+               } else {
+                  &stderr << nodes[nodes[expr].nodes[NODE_EVAL_OP]].token.pos << "error: unknown operation '" << nodes[nodes[expr].nodes[NODE_EVAL_OP]].token.str << "'\n"
+                  exit(1)
+               }
+               token.str = str_from_int(zalloc(20), token.data)
+               return node_new(NODE_ATOM, token)
+            } else {
+               &stderr << nodes[nodes[expr].nodes[NODE_EVAL_RHS]].token.pos << "error: right hand side value must be an integer\n"
+               exit(1)
+            }
+         } else {
+            &stderr << nodes[nodes[expr].nodes[NODE_EVAL_LHS]].token.pos << "error: left hand side value must be an integer\n"
+            exit(1)
+         }
+      }
+      else => assert false
+   }
+   return 0
 }
 
 fn stmt_substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
@@ -284,6 +363,9 @@ fn stmt_type_check(stmt Node_Index, state Node_Index, read Node_Index, scope *Sc
                }
             }
          }
+         triple.write = expr_force_evals(triple.write)
+         triple.action = expr_force_evals(triple.action)
+         triple.next = expr_force_evals(triple.next)
          return true
       }
       else => assert false
@@ -362,7 +444,7 @@ fn machine_step(machine *Machine) {
       scope.count = 0
       let triple Triple
       if stmt_type_check(stmts[i], machine.state, machine.tape[machine.head], &scope, &triple) {
-         machine.tape[machine.head] = triple.write
+         machine.tape[machine.head] = expr_force_evals(triple.write)
          if nodes[triple.action].token.str == "<-" {
             if machine.head == 0 {
                &stderr << nodes[triple.action].token.pos << "error: tape underflow\n"
@@ -379,7 +461,7 @@ fn machine_step(machine *Machine) {
          } else if nodes[triple.action].token.str == "!" {
             machine_print(machine)
          } else {
-            &stderr << nodes[triple.action].token.pos << "error: action must be '<-' or '->'\n"
+            &stderr << nodes[triple.action].token.pos << "error: unknown action '" << nodes[triple.action].token.str << "'\n"
             exit(1)
          }
          machine.state = triple.next

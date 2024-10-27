@@ -21,6 +21,8 @@ const (
    TOKEN_RPAREN
    TOKEN_LBRACE
    TOKEN_RBRACE
+   TOKEN_LBRACKET
+   TOKEN_RBRACKET
 
    TOKEN_TYPE
    TOKEN_VAR
@@ -30,7 +32,7 @@ const (
    COUNT_TOKENS
 )
 
-assert COUNT_TOKENS == 13
+assert COUNT_TOKENS == 15
 fn str_from_token_kind(kind Token_Kind) Str {
    match kind {
       TOKEN_EOF => return "end of file"
@@ -42,6 +44,8 @@ fn str_from_token_kind(kind Token_Kind) Str {
       TOKEN_RPAREN => return "')'"
       TOKEN_LBRACE => return "'{'"
       TOKEN_RBRACE => return "'}'"
+      TOKEN_LBRACKET => return "'['"
+      TOKEN_RBRACKET => return "']'"
       TOKEN_TYPE => return "keyword 'type'"
       TOKEN_VAR => return "keyword 'var'"
       TOKEN_RULE => return "keyword 'rule'"
@@ -144,7 +148,7 @@ fn lexer_char(name Str) char {
    return lexer_consume()
 }
 
-assert COUNT_TOKENS == 13
+assert COUNT_TOKENS == 15
 fn lexer_next() Token {
    if lexer.peeked {
       lexer.peeked = false
@@ -201,10 +205,12 @@ fn lexer_next() Token {
          ')' => token.kind = TOKEN_RPAREN
          '{' => token.kind = TOKEN_LBRACE
          '}' => token.kind = TOKEN_RBRACE
+         '[' => token.kind = TOKEN_LBRACKET
+         ']' => token.kind = TOKEN_RBRACKET
       }
 
       if token.kind == TOKEN_SYMBOL && !in_escape {
-         for lexer.str.size > 0 && !isspace(*lexer.str.data) && *lexer.str.data != '(' && *lexer.str.data != ')' && *lexer.str.data != ':' {
+         for lexer.str.size > 0 && !isspace(*lexer.str.data) && *lexer.str.data != '(' && *lexer.str.data != ')' && *lexer.str.data != '{' && *lexer.str.data != '}' && *lexer.str.data != '[' && *lexer.str.data != ']' && *lexer.str.data != ':' {
             lexer_advance()
          }
 
