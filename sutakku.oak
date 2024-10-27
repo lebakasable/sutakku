@@ -331,16 +331,25 @@ let arena = arena_new()
 fn machine_trace(machine *Machine) {
    arena.size = 0
    &arena << str_from_expr(machine.state) << ": "
-   let head = 0
+   let head_begin = 0
+   let head_end = 0
    for let i = 0, i < machine.tape_count, i += 1 {
-      if i == machine.head {
-         head = arena.size
+      if i > 0 {
+         &arena << " "
       }
-      &arena << str_from_expr(machine.tape[i]) << " "
+      if i == machine.head {
+         head_begin = arena.size
+      }
+      &arena << str_from_expr(machine.tape[i])
+      if i == machine.head {
+         head_end = arena.size
+      }
    }
    &stdout << str_from_arena(arena) << '\n'
-   for let i = 0, i < head, i += 1 { &stdout << ' ' }
-   &stdout << "^\n"
+   for let i = 0, i < head_begin, i += 1 { &stdout << ' ' }
+   &stdout << "^"
+   for let i = head_begin + 1, i < head_end, i += 1 { &stdout << '~' }
+   &stdout << "\n"
 }
 
 fn machine_step(machine *Machine) {
