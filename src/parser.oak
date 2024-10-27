@@ -7,6 +7,7 @@ alias Node_Index int
 alias Node_Kind int
 const (
    NODE_ATOM
+   NODE_LIST
 
    NODE_TYPE
    NODE_VAR
@@ -14,6 +15,8 @@ const (
    NODE_RUN
    COUNT_NODES
 )
+
+const NODE_LIST_ELEMENTS = 0
 
 const NODE_TYPE_SYMBOLS = 0
 
@@ -23,7 +26,7 @@ const NODE_VAR_BODY = 1
 const NODE_RULE_STATE = 0
 const NODE_RULE_READ = 1
 const NODE_RULE_WRITE = 2
-const NODE_RULE_STEP = 3
+const NODE_RULE_ACTION = 3
 const NODE_RULE_NEXT = 4
 
 const NODE_RUN_STATE = 0
@@ -37,7 +40,7 @@ struct Node {
    next Node_Index
 }
 
-const NODES_CAP = 16000
+const NODES_CAP = 1024*1024
 let nodes [NODES_CAP]Node
 let nodes_count int
 
@@ -93,12 +96,28 @@ fn error_unexpected(token Token) {
    exit(1)
 }
 
-assert COUNT_TOKENS == 11
-fn parse_atom() Node_Index {
+assert COUNT_TOKENS == 12
+fn parse_expr() Node_Index {
    let node Node_Index
    let token = lexer_next()
 
    match token.kind {
+      TOKEN_LPAREN => {
+         node = node_new(NODE_LIST, token)
+
+         if lexer_read(TOKEN_RPAREN) {
+            &stderr << token.pos << "error: lists can't be empty\n"
+            exit(1)
+         }
+
+         let elements = &nodes[node].nodes[NODE_LIST_ELEMENTS]
+         for true {
+            elements = node_list_push(elements, parse_expr())
+            if lexer_read(TOKEN_RPAREN) {
+               break
+            }
+         }
+      }
       TOKEN_SYMBOL => node = node_new(NODE_ATOM, token)
       else => error_unexpected(token)
    }
@@ -106,7 +125,7 @@ fn parse_atom() Node_Index {
    return node
 }
 
-assert COUNT_TOKENS == 11
+assert COUNT_TOKENS == 12
 fn parse_stmt() Node_Index {
    let node Node_Index
    let token = lexer_next()
@@ -130,7 +149,7 @@ fn parse_stmt() Node_Index {
 
          let symbols = &nodes[node].nodes[NODE_TYPE_SYMBOLS]
          for true {
-            symbols = node_list_push(symbols, parse_atom())
+            symbols = node_list_push(symbols, node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL)))
             if lexer_read(TOKEN_RBRACE) {
                break
             }
@@ -156,17 +175,17 @@ fn parse_stmt() Node_Index {
       }
       TOKEN_RULE => {
          node = node_new(NODE_RULE, token)
-         nodes[node].nodes[NODE_RULE_STATE] = parse_atom()
-         nodes[node].nodes[NODE_RULE_READ] = parse_atom()
-         nodes[node].nodes[NODE_RULE_WRITE] = parse_atom()
-         let step = lexer_either(TOKEN_LARROW, TOKEN_RARROW)
-         nodes[node].nodes[NODE_RULE_STEP] = node_new(NODE_ATOM, step)
-         nodes[node].nodes[NODE_RULE_NEXT] = parse_atom()
+         nodes[node].nodes[NODE_RULE_STATE] = parse_expr()
+         nodes[node].nodes[NODE_RULE_READ] = parse_expr()
+         nodes[node].nodes[NODE_RULE_WRITE] = parse_expr()
+         nodes[node].nodes[NODE_RULE_ACTION] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
+         nodes[node].nodes[NODE_RULE_NEXT] = parse_expr()
          stmts_push(node)
       }
-      TOKEN_RUN => {
+      TOKEN_RUN, TOKEN_TRACE => {
          node = node_new(NODE_RUN, token)
-         nodes[node].nodes[NODE_RUN_STATE] = parse_atom()
+         nodes[node].token.data = (token.kind == TOKEN_TRACE) as int
+         nodes[node].nodes[NODE_RUN_STATE] = parse_expr()
 
          lexer_expect(TOKEN_LBRACE)
          if lexer_read(TOKEN_RBRACE) {
@@ -176,7 +195,7 @@ fn parse_stmt() Node_Index {
 
          let tape = &nodes[node].nodes[NODE_RUN_TAPE]
          for true {
-            tape = node_list_push(tape, parse_atom())
+            tape = node_list_push(tape, parse_expr())
             if lexer_read(TOKEN_RBRACE) {
                break
             }

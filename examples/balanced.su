@@ -1,21 +1,21 @@
-type Paren { '( ') }
+type Paren { '(' ')' }
 type Bit { 0 1 }
 
-rule Entry &  & -> Pick
-rule Pick  '( & -> Inc1
-rule Pick  ') & -> Dec1
-rule Pick  &  & -> Verify
+rule Entry &   & -> Pick
+rule Pick  '(' & -> Inc1
+rule Pick  ')' & -> Dec1
+rule Pick  &   & -> Verify
 
 rule Verify 0 0 -> Balanced
 rule Verify 1 1 -> Unbalanced
 
-var p : Paren rule Inc1 p p -> Inc1
+var p: Paren rule Inc1 p p -> Inc1
 rule Inc1 & & -> Inc2
 
 rule Inc2 0 1 <- Reset_Bits
 rule Inc2 1 1 -> Inc2
 
-var p : Paren rule Dec1 p p -> Dec1
+var p: Paren rule Dec1 p p -> Dec1
 rule Dec1 &  &  -> Dec2
 
 rule Dec2 1 1 -> Dec2
@@ -23,10 +23,10 @@ rule Dec2 0 0 <- Dec3
 rule Dec3 1 0 <- Reset_Bits
 rule Dec3 & & <- Unbalanced
 
-var b : Bit rule Reset_Bits b b <- Reset_Bits
+var b: Bit rule Reset_Bits b b <- Reset_Bits
 rule Reset_Bits & & <- Reset_Parens
 
-var p : Paren rule Reset_Parens p p <- Reset_Parens
+var p: Paren rule Reset_Parens p p <- Reset_Parens
 rule Reset_Parens &  &  -> Pick
 
-run Entry { & '( '( ') ') & 0 0 0 0 0 0 0 }
+trace Entry { & '(' '(' ')' ')' & 0 0 0 0 0 0 0 }

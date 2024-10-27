@@ -16,33 +16,35 @@ const (
    TOKEN_SYMBOL
 
    TOKEN_COLON
+   TOKEN_LPAREN
+   TOKEN_RPAREN
    TOKEN_LBRACE
    TOKEN_RBRACE
-   TOKEN_LARROW
-   TOKEN_RARROW
 
    TOKEN_TYPE
    TOKEN_VAR
    TOKEN_RULE
    TOKEN_RUN
+   TOKEN_TRACE
    COUNT_TOKENS
 )
 
-assert COUNT_TOKENS == 11
+assert COUNT_TOKENS == 12
 fn str_from_token_kind(kind Token_Kind) Str {
    match kind {
       TOKEN_EOF => return "end of file"
       TOKEN_SYMBOL => return "symbol"
 
       TOKEN_COLON => return "':'"
+      TOKEN_LPAREN => return "'('"
+      TOKEN_RPAREN => return "')'"
       TOKEN_LBRACE => return "'{'"
       TOKEN_RBRACE => return "'}'"
-      TOKEN_LARROW => return "'<-'"
-      TOKEN_RARROW => return "'->'"
       TOKEN_TYPE => return "keyword 'type'"
       TOKEN_VAR => return "keyword 'var'"
       TOKEN_RULE => return "keyword 'rule'"
       TOKEN_RUN => return "keyword 'run'"
+      TOKEN_TRACE => return "keyword 'trace'"
       else => assert false
    }
    return ""
@@ -128,7 +130,19 @@ fn error_invalid(name Str) {
    exit(1)
 }
 
-assert COUNT_TOKENS == 11
+fn error_unterminated(name Str) {
+   &stderr << lexer.pos << "error: unterminated " << name << "\n"
+   exit(1)
+}
+
+fn lexer_char(name Str) char {
+   if lexer.str.size == 0 {
+      error_unterminated(name)
+   }
+   return lexer_consume()
+}
+
+assert COUNT_TOKENS == 12
 fn lexer_next() Token {
    if lexer.peeked {
       lexer.peeked = false
@@ -139,16 +153,8 @@ fn lexer_next() Token {
    for lexer.str.size > 0 {
       if isspace(*lexer.str.data) {
          lexer_advance()
-      } else if lexer_match('#') {
-         if lexer_match('#') {
-            for lexer.str.size > 0 {
-               if lexer_match('#') && lexer_match('#') {
-                  break
-               }
-
-               lexer_advance()
-            }
-         } else {
+      } else if lexer_match('/') {
+         if lexer_match('/') {
             for lexer.str.size > 0 && *lexer.str.data != '\n' {
                lexer_advance()
             }
@@ -167,24 +173,27 @@ fn lexer_next() Token {
    } else {
       token.kind = TOKEN_SYMBOL
 
+      let in_escape = false
       match lexer_consume() {
+         '\'' => {
+            for true {
+               let ch = lexer_char("escape")
+               if ch == '\'' {
+                  break
+               }
+            }
+            in_escape = true
+         }
+
          ':' => token.kind = TOKEN_COLON
+         '(' => token.kind = TOKEN_LPAREN
+         ')' => token.kind = TOKEN_RPAREN
          '{' => token.kind = TOKEN_LBRACE
          '}' => token.kind = TOKEN_RBRACE
-         '<' => {
-            if lexer_match('-') {
-               token.kind = TOKEN_LARROW
-            }
-         }
-         '-' => {
-            if lexer_match('>') {
-               token.kind = TOKEN_RARROW
-            }
-         }
       }
 
-      if token.kind == TOKEN_SYMBOL {
-         for lexer.str.size > 0 && !isspace(*lexer.str.data) {
+      if token.kind == TOKEN_SYMBOL && !in_escape {
+         for lexer.str.size > 0 && !isspace(*lexer.str.data) && *lexer.str.data != '(' && *lexer.str.data != ')' && *lexer.str.data != ':' {
             lexer_advance()
          }
 
@@ -198,6 +207,8 @@ fn lexer_next() Token {
             token.kind = TOKEN_RULE
          } else if token.str == "run" {
             token.kind = TOKEN_RUN
+         } else if token.str == "trace" {
+            token.kind = TOKEN_TRACE
          }
       } else {
          token.str.size -= lexer.str.size

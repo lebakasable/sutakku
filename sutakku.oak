@@ -3,8 +3,6 @@ use std.array
 use std.arena
 use src.parser
 
-let arena Arena
-
 fn usage(f *File) {
    f << "Usage: sutakku RULES TAPE\n"
 }
@@ -22,21 +20,81 @@ fn arg_next(name Str) Str {
    return str_from_cstr(argv[args_start - 1])
 }
 
-fn substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
+fn expr_equals(a Node_Index, b Node_Index) bool {
+   if nodes[a].kind != nodes[b].kind { return false }
+   match nodes[a].kind {
+      NODE_ATOM => return nodes[a].token.str == nodes[b].token.str
+      NODE_LIST => {
+         let a_element = nodes[a].nodes[NODE_LIST_ELEMENTS]
+         let b_element = nodes[b].nodes[NODE_LIST_ELEMENTS]
+         for a_element != 0 && b_element != 0 {
+            if !expr_equals(a_element, b_element) {
+               return false
+            }
+            a_element = nodes[a_element].next
+            b_element = nodes[b_element].next
+         }
+         return a_element == 0 && b_element == 0
+      }
+      else => assert false
+   }
+   return false
+}
+
+let arena = arena_new()
+
+fn str_from_expr(expr Node_Index) Str {
+   match nodes[expr].kind {
+      NODE_ATOM => return nodes[expr].token.str
+      NODE_LIST => {
+         &arena << "("
+         for let element = nodes[expr].nodes[NODE_LIST_ELEMENTS], element != 0, element = nodes[element].next {
+            &arena << str_from_expr(element)
+            if nodes[element].next != 0 {
+               &arena << " "
+            }
+         }
+         &arena << ")"
+         let str = str_from_arena(arena)
+         arena.size = 0
+         return str
+      }
+      else => assert false
+   }
+   return ""
+}
+
+fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Index {
+   match nodes[expr].kind {
+      NODE_ATOM => return node_new(NODE_ATOM, if(nodes[expr].token.str == nodes[name].token.str, nodes[symbol].token, nodes[expr].token))
+      NODE_LIST => {
+         let new = node_new(NODE_LIST, nodes[expr].token)
+         let new_elements = &nodes[new].nodes[NODE_LIST_ELEMENTS]
+         for let element = nodes[expr].nodes[NODE_LIST_ELEMENTS], element != 0, element = nodes[element].next {
+            new_elements = node_list_push(new_elements, expr_substitute(element, name, symbol))
+         }
+         return new
+      }
+      else => assert false
+   }
+   return 0
+}
+
+fn stmt_substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
    match nodes[stmt].kind {
       NODE_VAR => {
          let new = node_new(NODE_VAR, nodes[stmt].token)
-         nodes[new].nodes[NODE_VAR_TYPE] = if(nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_VAR_TYPE])
-         nodes[new].nodes[NODE_VAR_BODY] = substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, nodes[new].nodes[NODE_VAR_TYPE])
+         nodes[new].nodes[NODE_VAR_TYPE] = nodes[stmt].nodes[NODE_VAR_TYPE]
+         nodes[new].nodes[NODE_VAR_BODY] = stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], name, symbol)
          return new
       }
       NODE_RULE => {
          let new = node_new(NODE_RULE, nodes[stmt].token)
-         nodes[new].nodes[NODE_RULE_STATE] = if(nodes[nodes[stmt].nodes[NODE_RULE_STATE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_STATE])
-         nodes[new].nodes[NODE_RULE_READ] = if(nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_READ])
-         nodes[new].nodes[NODE_RULE_WRITE] = if(nodes[nodes[stmt].nodes[NODE_RULE_WRITE]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_WRITE])
-         nodes[new].nodes[NODE_RULE_STEP] = nodes[stmt].nodes[NODE_RULE_STEP]
-         nodes[new].nodes[NODE_RULE_NEXT] = if(nodes[nodes[stmt].nodes[NODE_RULE_NEXT]].token.str == nodes[name].token.str, symbol, nodes[stmt].nodes[NODE_RULE_NEXT])
+         nodes[new].nodes[NODE_RULE_STATE] = expr_substitute(nodes[stmt].nodes[NODE_RULE_STATE], name, symbol)
+         nodes[new].nodes[NODE_RULE_READ] = expr_substitute(nodes[stmt].nodes[NODE_RULE_READ], name, symbol)
+         nodes[new].nodes[NODE_RULE_WRITE] = expr_substitute(nodes[stmt].nodes[NODE_RULE_WRITE], name, symbol)
+         nodes[new].nodes[NODE_RULE_ACTION] = expr_substitute(nodes[stmt].nodes[NODE_RULE_ACTION], name, symbol)
+         nodes[new].nodes[NODE_RULE_NEXT] = expr_substitute(nodes[stmt].nodes[NODE_RULE_NEXT], name, symbol)
          return new
       }
       else => assert false
@@ -46,25 +104,25 @@ fn substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
 
 struct Triple {
    write Node_Index
-   step Node_Index
+   action Node_Index
    next Node_Index
 }
 
-fn match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
+fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
    match nodes[stmt].kind {
       NODE_VAR => {
          let type = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]]
          for let symbol = type.nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
-            if match_state(substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, symbol), state, read, triple) {
+            if stmt_match_state(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], stmt, symbol), state, read, triple) {
                return true
             }
          }
          return false
       }
       NODE_RULE => {
-         if nodes[nodes[stmt].nodes[NODE_RULE_STATE]].token.str == nodes[state].token.str && nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.str == nodes[read].token.str {
+         if expr_equals(nodes[stmt].nodes[NODE_RULE_STATE], state) && expr_equals(nodes[stmt].nodes[NODE_RULE_READ], read) {
             triple.write = nodes[stmt].nodes[NODE_RULE_WRITE]
-            triple.step = nodes[stmt].nodes[NODE_RULE_STEP]
+            triple.action = nodes[stmt].nodes[NODE_RULE_ACTION]
             triple.next = nodes[stmt].nodes[NODE_RULE_NEXT]
             return true
          } else {
@@ -103,47 +161,53 @@ struct Machine {
    halt bool
 }
 
+let arena = arena_new()
+
+fn machine_print(machine *Machine) {
+   arena.size = 0
+   &arena << str_from_expr(machine.state) << ": "
+   let head = 0
+   for let i = 0, i < machine.tape.count, i += 1 {
+      if i == machine.head {
+         head = arena.size
+      }
+      &arena << str_from_expr(machine.tape.data[i]) << " "
+   }
+   &stdout << str_from_arena(arena) << '\n'
+   ##
+   for let i = 0, i < head, i += 1 { &stdout << ' ' }
+   &stdout << "^\n"
+   ##
+}
+
 fn machine_next(machine *Machine) {
    for let i = 0, i < stmts_count, i += 1 {
       let triple Triple
-      if match_state(stmts[i], machine.state, machine.tape.data[machine.head], &triple) {
+      if stmt_match_state(stmts[i], machine.state, machine.tape.data[machine.head], &triple) {
          machine.tape.data[machine.head] = triple.write
-         match nodes[triple.step].token.kind {
-            TOKEN_LARROW => {
-               if machine.head == 0 {
-                  &stderr << nodes[triple.step].token.pos << "error: tape underflow\n"
-                  exit(1)
-               }
-               machine.head -= 1
+         if nodes[triple.action].token.str == "<-" {
+            if machine.head == 0 {
+               &stderr << nodes[triple.action].token.pos << "error: tape underflow\n"
+               exit(1)
             }
-            TOKEN_RARROW => {
-               machine.head += 1
-               if machine.head >= machine.tape.count {
-                  &machine.tape << machine.tape_default
-               }
+            machine.head -= 1
+         } else if nodes[triple.action].token.str == "->" {
+            machine.head += 1
+            if machine.head >= machine.tape.count {
+               &machine.tape << machine.tape_default
             }
-            else => assert false
+         } else if nodes[triple.action].token.str == "." {
+         } else if nodes[triple.action].token.str == "!" {
+            machine_print(machine)
+         } else {
+            &stderr << nodes[triple.action].token.pos << "error: action must be '<-' or '->'\n"
+            exit(1)
          }
          machine.state = triple.next
          machine.halt = false
          break
       }
    }
-}
-
-fn machine_print(machine *Machine) {
-   arena.size = 0
-   &arena << nodes[machine.state].token.str << ": "
-   let head = 0
-   for let i = 0, i < machine.tape.count, i += 1 {
-      if i == machine.head {
-         head = arena.size
-      }
-      &arena << nodes[machine.tape.data[i]].token.str << " "
-   }
-   &stdout << str_from_arena(arena) << '\n'
-   for let i = 0, i < head, i += 1 { &stdout << ' ' }
-   &stdout << "^\n"
 }
 
 fn main() {
@@ -153,7 +217,9 @@ fn main() {
    for !lexer_read(TOKEN_EOF) {
       let stmt = parse_stmt()
       if nodes[stmt].kind == NODE_RUN {
-         &stdout << nodes[stmt].token.pos << "\n"
+         if nodes[stmt].token.data as bool {
+            &stdout << nodes[stmt].token.pos << "\n"
+         }
 
          let machine Machine
          machine.state = nodes[stmt].nodes[NODE_RUN_STATE]
@@ -169,7 +235,9 @@ fn main() {
          }
 
          for !machine.halt {
-            machine_print(&machine)
+            if nodes[stmt].token.data as bool {
+               machine_print(&machine)
+            }
             machine.halt = true
             machine_next(&machine)
          }

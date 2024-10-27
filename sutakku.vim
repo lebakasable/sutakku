@@ -10,12 +10,11 @@ if exists("b:current_syntax")
    finish
 endif
 
-setlocal commentstring=#%s
+setlocal commentstring=//%s
 
-syntax match Comment "#.*" contains=Todo
-syntax region Comment start="##" end="##" contains=Todo
+syntax match Comment "//.*" contains=Todo
 syntax keyword Todo TODO XXX FIXME NOTE
-syntax keyword Keyword rule run type var
+syntax keyword Keyword type var rule run trace
 syntax match Operator "<-\|->"
 
 let b:current_syntax = "sutakku"
