@@ -279,7 +279,8 @@ fn stmt_type_check(stmt Node_Index, state Node_Index, read Node_Index, scope *Sc
                   &stderr << nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.pos << "note: or here\n"
                   exit(1)
                } else {
-                  &stderr << nodes[nodes[scope.data[i]].nodes[NODE_VAR_NAME]].token.pos << "warning: unused variable '" << str_from_expr(nodes[scope.data[i]].nodes[NODE_VAR_NAME]) << "'\n"
+                  &stderr << nodes[nodes[scope.data[i]].nodes[NODE_VAR_NAME]].token.pos << "error: unused variable '" << str_from_expr(nodes[scope.data[i]].nodes[NODE_VAR_NAME]) << "'\n"
+                  exit(1)
                }
             }
          }
