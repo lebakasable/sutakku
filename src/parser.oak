@@ -65,6 +65,17 @@ fn node_list_push(list *Node_Index, node Node_Index) *Node_Index {
    return list
 }
 
+fn node_list_find(list Node_Index, node Node_Index) bool {
+   for list != 0 {
+      if nodes[list].token.str == nodes[node].token.str {
+         nodes[node].token.data = list
+         return true
+      }
+      list = nodes[list].next
+   }
+   return false
+}
+
 const TYPES_CAP = 1024
 let types [TYPES_CAP]Node_Index
 let types_count int
@@ -185,7 +196,7 @@ fn parse_stmt() Node_Index {
 
          var_names_count = 0
          for true {
-            var_names[var_names_count] = parse_expr()
+            var_names[var_names_count] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
             var_names_count += 1
             if lexer_read(TOKEN_COLON) {
                break

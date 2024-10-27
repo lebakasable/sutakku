@@ -1,7 +1,10 @@
 use std.io
-use std.array
 use std.arena
 use src.parser
+
+const SCOPE_CAP = 1024
+const BINDINGS_CAP = 1024
+const TAPE_CAP = 1024
 
 fn usage(f *File) {
    f << "Usage:\n"
@@ -69,6 +72,26 @@ fn str_from_expr(expr Node_Index) Str {
    return ""
 }
 
+fn expr_find_atom(expr Node_Index, name Node_Index, atom *Node_Index) bool {
+   match nodes[expr].kind {
+      NODE_ATOM => {
+         if expr_equals(expr, name) {
+            *atom = expr
+            return true
+         }
+      }
+      NODE_LIST => {
+         for let element = nodes[expr].nodes[NODE_LIST_ELEMENTS], element != 0, element = nodes[element].next {
+            if expr_find_atom(element, name, atom) {
+               return true
+            }
+         }
+      }
+      else => assert false
+   }
+   return false
+}
+
 fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Index {
    match nodes[expr].kind {
       NODE_ATOM => return node_new(NODE_ATOM, if(expr_equals(expr, name), nodes[symbol].token, nodes[expr].token))
@@ -85,43 +108,75 @@ fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Ind
    return 0
 }
 
+struct Scope {
+   data [SCOPE_CAP]Node_Index
+   count int
+}
+
+fn scope_remove(scope *Scope, index int) {
+   for let i = index, i < scope.count - 1, i += 1 {
+      scope.data[i] = scope.data[i + 1]
+   }
+   scope.count -= 1
+}
+
+fn scope_find(scope *Scope, name Node_Index, index *int) bool {
+   for let i = 0, i < scope.count, i += 1 {
+      if expr_equals(nodes[scope.data[i]].nodes[NODE_VAR_NAME], name) {
+         *index = i
+         return true
+      }
+   }
+   return false
+}
+
 struct Binding {
    name Node_Index
    value int
 }
 
 struct Bindings {
-   data *Binding
+   data [BINDINGS_CAP]Binding
    count int
-   capacity int
 }
 
-fn bindings_new() Bindings {
-   let bindings Bindings
-   bindings.data = 0 as *Binding
-   bindings.count = 0
-   bindings.capacity = 0
-   return bindings
+fn bindings_find(bindings *Bindings, name Node_Index, index *int) bool {
+   for let i = 0, i < bindings.count, i += 1 {
+      if expr_equals(bindings.data[i].name, name) {
+         *index = i
+         return true
+      }
+   }
+   return false
 }
 
-fn expr_pattern_match(pattern Node_Index, value Node_Index, bindings *Bindings) bool {
-   if nodes[pattern].kind == NODE_ATOM {
-      let binding Binding
-      binding.name = pattern
-      binding.value = value
-      *(array_push(&bindings.data as **char, &bindings.count, &bindings.capacity, sizeof(Binding)) as *Binding) = binding
-      return true
-   } else if nodes[pattern].kind == NODE_LIST && nodes[pattern].kind == NODE_LIST {
-      let pattern_element = nodes[pattern].nodes[NODE_LIST_ELEMENTS]
-      let value_element = nodes[value].nodes[NODE_LIST_ELEMENTS]
-      for pattern_element != 0 && value_element != 0 {
-         if !expr_pattern_match(pattern_element, value_element, bindings) {
+fn expr_pattern_match(name Node_Index, value Node_Index, scope *Scope, bindings *Bindings) bool {
+   if nodes[name].kind == NODE_ATOM {
+      let index int
+      if scope_find(scope, name, &index) {
+         let index int
+         if bindings_find(bindings, name, &index) {
+            return expr_equals(bindings.data[index].value, value)
+         } else {
+            bindings.data[bindings.count].name = name
+            bindings.data[bindings.count].value = value
+            bindings.count += 1
+            return true
+         }
+      } else {
+         return expr_equals(name, value)
+      }
+   } else if nodes[name].kind == NODE_LIST && nodes[name].kind == NODE_LIST {
+      let a = nodes[name].nodes[NODE_LIST_ELEMENTS]
+      let b = nodes[value].nodes[NODE_LIST_ELEMENTS]
+      for a != 0 && b != 0 {
+         if !expr_pattern_match(a, b, scope, bindings) {
             return false
          }
-         pattern_element = nodes[pattern_element].next
-         value_element = nodes[value_element].next
+         a = nodes[a].next
+         b = nodes[b].next
       }
-      return pattern_element == 0 && value_element == 0
+      return a == 0 && b == 0
    }
    return false
 }
@@ -163,46 +218,65 @@ struct Triple {
    next Node_Index
 }
 
-let bindings = bindings_new()
-
-fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
+fn stmt_type_check(stmt Node_Index, state Node_Index, read Node_Index, scope *Scope, triple *Triple) bool {
    match nodes[stmt].kind {
       NODE_BLOCK => {
          for let stmt = nodes[stmt].nodes[NODE_BLOCK_STMTS], stmt != 0, stmt = nodes[stmt].next {
-            if stmt_match_state(stmt, state, read, triple) {
+            if stmt_type_check(stmt, state, read, scope, triple) {
                return true
-            }  
-         }
-         return false
-      }
-      NODE_VAR => {
-         for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
-            bindings.count = 0
-            if expr_pattern_match(nodes[stmt].nodes[NODE_VAR_NAME], expr, &bindings) {
-               let subs_body = nodes[stmt].nodes[NODE_VAR_BODY]
-               for let i = 0, i < bindings.count, i += 1 {
-                  subs_body = stmt_substitute(subs_body, bindings.data[i].name, bindings.data[i].value)
-               }
-               if stmt_match_state(subs_body, state, read, triple) {
-                  return true
-               }
-            } else {
-               &stderr << nodes[nodes[stmt].nodes[NODE_VAR_NAME]].token.pos << "error: '" << str_from_expr(nodes[stmt].nodes[NODE_VAR_NAME]) << "' does not match '" << str_from_expr(expr) << "' from type '" << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str << "'\n"
-               &stderr << nodes[expr].token.pos << "note: the expression is located here\n"
-               exit(1)
             }
          }
          return false
       }
+      NODE_VAR => {
+         let index int
+         if scope_find(scope, nodes[stmt].nodes[NODE_VAR_NAME], &index) {
+            &stderr << nodes[nodes[stmt].nodes[NODE_VAR_NAME]].token.pos << "error: '" << str_from_expr(nodes[stmt].nodes[NODE_VAR_NAME]) << "' shadows another name in the higher scope\n"
+            &stderr << nodes[nodes[scope.data[index]].nodes[NODE_VAR_NAME]].token.pos << "note: the shadowed name is located here\n"
+            exit(1)
+         }
+         let var = scope.count
+         scope.data[scope.count] = stmt
+         scope.count += 1
+         let result = stmt_type_check(nodes[stmt].nodes[NODE_VAR_BODY], state, read, scope, triple)
+         scope_remove(scope, var)
+         return result
+      }
       NODE_RULE => {
-         if expr_equals(nodes[stmt].nodes[NODE_RULE_STATE], state) && expr_equals(nodes[stmt].nodes[NODE_RULE_READ], read) {
-            triple.write = nodes[stmt].nodes[NODE_RULE_WRITE]
-            triple.action = nodes[stmt].nodes[NODE_RULE_ACTION]
-            triple.next = nodes[stmt].nodes[NODE_RULE_NEXT]
-            return true
-         } else {
+         let bindings Bindings
+         bindings.count = 0
+         if !expr_pattern_match(nodes[stmt].nodes[NODE_RULE_STATE], state, scope, &bindings) {
             return false
          }
+         if !expr_pattern_match(nodes[stmt].nodes[NODE_RULE_READ], read, scope, &bindings) {
+            return false
+         }
+         triple.write = nodes[stmt].nodes[NODE_RULE_WRITE]
+         triple.action = nodes[stmt].nodes[NODE_RULE_ACTION]
+         triple.next = nodes[stmt].nodes[NODE_RULE_NEXT]
+         for let i = 0, i < scope.count, i += 1 {
+            let index int
+            if bindings_find(&bindings, nodes[scope.data[i]].nodes[NODE_VAR_NAME], &index) {
+               if node_list_find(nodes[nodes[scope.data[i]].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], bindings.data[index].value) {
+                  triple.write = expr_substitute(triple.write, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
+                  triple.action = expr_substitute(triple.action, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
+                  triple.next = expr_substitute(triple.next, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
+               } else {
+                  return false
+               }
+            } else {
+               let atom int
+               if expr_find_atom(nodes[stmt].nodes[NODE_RULE_WRITE], nodes[scope.data[i]].nodes[NODE_VAR_NAME], &atom) || expr_find_atom(nodes[stmt].nodes[NODE_RULE_ACTION], nodes[scope.data[i]].nodes[NODE_VAR_NAME], &atom) || expr_find_atom(nodes[stmt].nodes[NODE_RULE_NEXT], nodes[scope.data[i]].nodes[NODE_VAR_NAME], &atom) {
+                  &stderr << nodes[atom].token.pos << "error: ambiguous use of variable '" << nodes[atom].token.str << "'\n"
+                  &stderr << nodes[nodes[stmt].nodes[NODE_RULE_STATE]].token.pos << "note: to make it unambiguous it must be used here\n"
+                  &stderr << nodes[nodes[stmt].nodes[NODE_RULE_READ]].token.pos << "note: or here\n"
+                  exit(1)
+               } else {
+                  &stderr << nodes[nodes[scope.data[i]].nodes[NODE_VAR_NAME]].token.pos << "warning: unused variable '" << str_from_expr(nodes[scope.data[i]].nodes[NODE_VAR_NAME]) << "'\n"
+               }
+            }
+         }
+         return true
       }
       else => assert false
    }
@@ -218,18 +292,7 @@ fn stmt_expand(stmt Node_Index) {
       }
       NODE_VAR => {
          for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
-            bindings.count = 0
-            if expr_pattern_match(nodes[stmt].nodes[NODE_VAR_NAME], expr, &bindings) {
-               let subs_body = nodes[stmt].nodes[NODE_VAR_BODY]
-               for let i = 0, i < bindings.count, i += 1 {
-                  subs_body = stmt_substitute(subs_body, bindings.data[i].name, bindings.data[i].value)
-               }
-               stmt_expand(subs_body)
-            } else {
-               &stderr << nodes[nodes[stmt].nodes[NODE_VAR_NAME]].token.pos << "error: '" << str_from_expr(nodes[stmt].nodes[NODE_VAR_NAME]) << "' does not match '" << str_from_expr(expr) << "' from type '" << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str << "'\n"
-               &stderr << nodes[expr].token.pos << "note: the expression is located here\n"
-               exit(1)
-            }
+            stmt_expand(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], nodes[stmt].nodes[NODE_VAR_NAME], expr))
          }
       }
       NODE_RULE => {
@@ -239,28 +302,10 @@ fn stmt_expand(stmt Node_Index) {
    }
 }
 
-struct Tape {
-   data *Node_Index
-   count int
-   capacity int
-}
-
-fn tape_new() Tape {
-   let tape Tape
-   tape.data = 0 as *Node_Index
-   tape.count = 0
-   tape.capacity = 0
-   return tape
-}
-
-fn [<<](tape *Tape, node Node_Index) *Tape {
-   *(array_push(&tape.data as **char, &tape.count, &tape.capacity, sizeof(Node_Index)) as *Node_Index) = node
-   return tape
-}
-
 struct Machine {
    state Node_Index
-   tape Tape
+   tape [TAPE_CAP]Node_Index
+   tape_count int
    tape_default Node_Index
    head int
    halt bool
@@ -272,22 +317,24 @@ fn machine_print(machine *Machine) {
    arena.size = 0
    &arena << str_from_expr(machine.state) << ": "
    let head = 0
-   for let i = 0, i < machine.tape.count, i += 1 {
+   for let i = 0, i < machine.tape_count, i += 1 {
       if i == machine.head {
          head = arena.size
       }
-      &arena << str_from_expr(machine.tape.data[i]) << " "
+      &arena << str_from_expr(machine.tape[i]) << " "
    }
    &stdout << str_from_arena(arena) << '\n'
    for let i = 0, i < head, i += 1 { &stdout << ' ' }
    &stdout << "^\n"
 }
 
-fn machine_next(machine *Machine) {
+fn machine_step(machine *Machine) {
    for let i = 0, i < stmts_count, i += 1 {
+      let scope Scope
+      scope.count = 0
       let triple Triple
-      if stmt_match_state(stmts[i], machine.state, machine.tape.data[machine.head], &triple) {
-         machine.tape.data[machine.head] = triple.write
+      if stmt_type_check(stmts[i], machine.state, machine.tape[machine.head], &scope, &triple) {
+         machine.tape[machine.head] = triple.write
          if nodes[triple.action].token.str == "<-" {
             if machine.head == 0 {
                &stderr << nodes[triple.action].token.pos << "error: tape underflow\n"
@@ -296,8 +343,9 @@ fn machine_next(machine *Machine) {
             machine.head -= 1
          } else if nodes[triple.action].token.str == "->" {
             machine.head += 1
-            if machine.head >= machine.tape.count {
-               &machine.tape << machine.tape_default
+            if machine.head >= machine.tape_count {
+               machine.tape[machine.tape_count] = machine.tape_default
+               machine.tape_count += 1
             }
          } else if nodes[triple.action].token.str == "." {
          } else if nodes[triple.action].token.str == "!" {
@@ -325,12 +373,13 @@ fn mode_run(path Str) {
 
          let machine Machine
          machine.state = nodes[stmt].nodes[NODE_RUN_STATE]
-         machine.tape = tape_new()
+         machine.tape_count = 0
          machine.head = 0
          machine.halt = false
 
          for let expr = nodes[stmt].nodes[NODE_RUN_TAPE], expr != 0, expr = nodes[expr].next {
-            &machine.tape << expr
+            machine.tape[machine.tape_count] = expr
+            machine.tape_count += 1
             if nodes[expr].next == 0 {
                machine.tape_default = expr
             }
@@ -341,7 +390,7 @@ fn mode_run(path Str) {
                machine_print(&machine)
             }
             machine.halt = true
-            machine_next(&machine)
+            machine_step(&machine)
          }
       }
    }
