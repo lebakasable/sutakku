@@ -10,6 +10,7 @@ const (
    NODE_LIST
 
    NODE_TYPE
+   NODE_BLOCK
    NODE_VAR
    NODE_RULE
    NODE_RUN
@@ -19,6 +20,8 @@ const (
 const NODE_LIST_ELEMENTS = 0
 
 const NODE_TYPE_SYMBOLS = 0
+
+const NODE_BLOCK_STMTS = 0
 
 const NODE_VAR_NAME = 0
 const NODE_VAR_TYPE = 1
@@ -160,6 +163,22 @@ fn parse_stmt() Node_Index {
          }
 
          types_push(node)
+      }
+      TOKEN_LBRACE => {
+         if lexer_read(TOKEN_RBRACE) {
+            &stderr << token.pos << "error: blocks can't be empty\n"
+            exit(1)
+         }
+
+         node = node_new(NODE_BLOCK, token)
+         let stmts = &nodes[node].nodes[NODE_BLOCK_STMTS]
+         for true {
+            stmts = node_list_push(stmts, parse_stmt())
+            if lexer_read(TOKEN_RBRACE) {
+               break
+            }
+         }
+         stmts_push(node)
       }
       TOKEN_VAR => {
          node = node_new(NODE_VAR, token)

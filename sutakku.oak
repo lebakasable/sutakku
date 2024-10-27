@@ -82,6 +82,14 @@ fn expr_substitute(expr Node_Index, name Node_Index, symbol Node_Index) Node_Ind
 
 fn stmt_substitute(stmt Node_Index, name Node_Index, symbol Node_Index) Node_Index {
    match nodes[stmt].kind {
+      NODE_BLOCK => {
+         let new = node_new(NODE_BLOCK, nodes[stmt].token)
+         let new_stmts = &nodes[new].nodes[NODE_BLOCK_STMTS]
+         for let stmt = nodes[stmt].nodes[NODE_BLOCK_STMTS], stmt != 0, stmt = nodes[stmt].next {
+            new_stmts = node_list_push(new_stmts, stmt_substitute(stmt, name, symbol))
+         }
+         return new
+      }
       NODE_VAR => {
          let new = node_new(NODE_VAR, nodes[stmt].token)
          nodes[new].nodes[NODE_VAR_NAME] = nodes[stmt].nodes[NODE_VAR_NAME]
@@ -111,6 +119,14 @@ struct Triple {
 
 fn stmt_match_state(stmt Node_Index, state Node_Index, read Node_Index, triple *Triple) bool {
    match nodes[stmt].kind {
+      NODE_BLOCK => {
+         for let stmt = nodes[stmt].nodes[NODE_BLOCK_STMTS], stmt != 0, stmt = nodes[stmt].next {
+            if stmt_match_state(stmt, state, read, triple) {
+               return true
+            }  
+         }
+         return false
+      }
       NODE_VAR => {
          for let symbol = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_SYMBOLS], symbol != 0, symbol = nodes[symbol].next {
             if stmt_match_state(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], nodes[stmt].nodes[NODE_VAR_NAME], symbol), state, read, triple) {
