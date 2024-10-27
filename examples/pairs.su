@@ -1,0 +1,8 @@
+type Number { 0 1 2 3 }
+
+var a: Number
+var b: Number
+rule Swap (a b) (b a) -> Swap
+rule Swap & & -> Halt
+
+trace Swap { (0 1) (1 2) (2 3) & }
