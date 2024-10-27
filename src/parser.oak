@@ -114,7 +114,20 @@ fn error_unexpected(token Token) {
    exit(1)
 }
 
-assert COUNT_TOKENS == 12
+assert COUNT_TOKENS == 13
+fn parse_atom() Node_Index {
+   let node Node_Index
+   let token = lexer_next()
+
+   match token.kind {
+      TOKEN_INTEGER, TOKEN_SYMBOL => node = node_new(NODE_ATOM, token)
+      else => error_unexpected(token)
+   }
+
+   return node
+}
+
+assert COUNT_TOKENS == 13
 fn parse_expr() Node_Index {
    let node Node_Index
    let token = lexer_next()
@@ -136,14 +149,16 @@ fn parse_expr() Node_Index {
             }
          }
       }
-      TOKEN_SYMBOL => node = node_new(NODE_ATOM, token)
-      else => error_unexpected(token)
+      else => {
+         lexer_buffer(token)
+         node = parse_atom()
+      }
    }
 
    return node
 }
 
-assert COUNT_TOKENS == 12
+assert COUNT_TOKENS == 13
 fn parse_stmt() Node_Index {
    let node Node_Index
    let token = lexer_next()
@@ -189,6 +204,7 @@ fn parse_stmt() Node_Index {
                break
             }
          }
+
          stmts_push(node)
       }
       TOKEN_VAR => {
@@ -196,27 +212,32 @@ fn parse_stmt() Node_Index {
 
          var_names_count = 0
          for true {
-            var_names[var_names_count] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
+            var_names[var_names_count] = parse_atom()
             var_names_count += 1
             if lexer_read(TOKEN_COLON) {
                break
             }
          }
 
-         let type = lexer_expect(TOKEN_SYMBOL)
+         let type Node_Index
+         let type_token = lexer_expect(TOKEN_SYMBOL)
          let index int
-         if types_find(type.str, &index) {
-            nodes[node].nodes[NODE_VAR_TYPE] = types[index]
+         if type_token.str == "Integer" {
+            type = node_new(NODE_TYPE, type_token)
+         } else if types_find(type_token.str, &index) {
+            type = types[index]
          } else {
-            &stdout << type.pos << "error: unknown type '" << type.str << "'\n"
+            &stdout << type_token.pos << "error: unknown type '" << type_token.str << "'\n"
             exit(1)
          }
+
+         nodes[node].nodes[NODE_VAR_TYPE] = type
          
          node = parse_stmt()
          for let i = var_names_count - 1, i >= 0, i -= 1 {
             let new_var = node_new(NODE_VAR, token)
             nodes[new_var].nodes[NODE_VAR_NAME] = var_names[i]
-            nodes[new_var].nodes[NODE_VAR_TYPE] = types[index]
+            nodes[new_var].nodes[NODE_VAR_TYPE] = type
             nodes[new_var].nodes[NODE_VAR_BODY] = node
             node = new_var
          }
@@ -228,7 +249,7 @@ fn parse_stmt() Node_Index {
          nodes[node].nodes[NODE_RULE_STATE] = parse_expr()
          nodes[node].nodes[NODE_RULE_READ] = parse_expr()
          nodes[node].nodes[NODE_RULE_WRITE] = parse_expr()
-         nodes[node].nodes[NODE_RULE_ACTION] = node_new(NODE_ATOM, lexer_expect(TOKEN_SYMBOL))
+         nodes[node].nodes[NODE_RULE_ACTION] = parse_atom()
          nodes[node].nodes[NODE_RULE_NEXT] = parse_expr()
          stmts_push(node)
       }

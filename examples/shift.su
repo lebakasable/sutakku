@@ -1,0 +1,13 @@
+type Callback { Halt Shift }
+
+var c: Callback rule (Print c) & & ! c
+rule Shift & & -> Pick
+
+var s    : Integer rule Pick        s s -> (Pick s)
+var s t  : Integer rule (Pick s)    t t <- (Place s t)
+var s t _: Integer rule (Place s t) _ t -> (Skip s)
+var s t  : Integer rule (Skip s)    t t -> (Pick s)
+var s    : Integer rule (Pick s)    & & <- (Finish s)
+var s _  : Integer rule (Finish s)  _ s -> (Print Halt)
+
+run (Print Shift) { & 39 12 7471 94 5 6 7 & }

@@ -28,6 +28,13 @@ fn arg_next(name Str) Str {
    return str_from_cstr(argv[args_start - 1])
 }
 
+fn type_contains_expr(type Node_Index, expr Node_Index) bool {
+   if nodes[type].token.str == "Integer" {
+      return nodes[expr].token.kind == TOKEN_INTEGER
+   }
+   return node_list_find(nodes[type].nodes[NODE_TYPE_EXPRS], expr)
+}
+
 fn expr_equals(a Node_Index, b Node_Index) bool {
    if nodes[a].kind != nodes[b].kind { return false }
    match nodes[a].kind {
@@ -114,15 +121,15 @@ struct Scope {
 }
 
 fn scope_remove(scope *Scope, index int) {
-   for let i = index, i < scope.count - 1, i += 1 {
+   scope.count -= 1
+   for let i = index, i < scope.count, i += 1 {
       scope.data[i] = scope.data[i + 1]
    }
-   scope.count -= 1
 }
 
 fn scope_find(scope *Scope, name Node_Index, index *int) bool {
    for let i = 0, i < scope.count, i += 1 {
-      if expr_equals(nodes[scope.data[i]].nodes[NODE_VAR_NAME], name) {
+      if nodes[nodes[scope.data[i]].nodes[NODE_VAR_NAME]].token.str == nodes[name].token.str {
          *index = i
          return true
       }
@@ -257,7 +264,7 @@ fn stmt_type_check(stmt Node_Index, state Node_Index, read Node_Index, scope *Sc
          for let i = 0, i < scope.count, i += 1 {
             let index int
             if bindings_find(&bindings, nodes[scope.data[i]].nodes[NODE_VAR_NAME], &index) {
-               if node_list_find(nodes[nodes[scope.data[i]].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], bindings.data[index].value) {
+               if type_contains_expr(nodes[scope.data[i]].nodes[NODE_VAR_TYPE], bindings.data[index].value) {
                   triple.write = expr_substitute(triple.write, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
                   triple.action = expr_substitute(triple.action, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
                   triple.next = expr_substitute(triple.next, nodes[scope.data[i]].nodes[NODE_VAR_NAME], bindings.data[index].value)
@@ -311,9 +318,16 @@ struct Machine {
    halt bool
 }
 
+fn machine_print(machine *Machine) {
+   for let i = 0, i < machine.tape_count, i += 1 {
+      &stdout << str_from_expr(machine.tape[i]) << " "
+   }
+   &stdout << "\n"
+}
+
 let arena = arena_new()
 
-fn machine_print(machine *Machine) {
+fn machine_trace(machine *Machine) {
    arena.size = 0
    &arena << str_from_expr(machine.state) << ": "
    let head = 0
@@ -387,7 +401,7 @@ fn mode_run(path Str) {
 
          for !machine.halt {
             if nodes[stmt].token.data as bool {
-               machine_print(&machine)
+               machine_trace(&machine)
             }
             machine.halt = true
             machine_step(&machine)

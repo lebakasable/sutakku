@@ -13,6 +13,7 @@ fn [<<](f *File, pos Pos) *File {
 alias Token_Kind int
 const (
    TOKEN_EOF
+   TOKEN_INTEGER
    TOKEN_SYMBOL
 
    TOKEN_COLON
@@ -29,10 +30,11 @@ const (
    COUNT_TOKENS
 )
 
-assert COUNT_TOKENS == 12
+assert COUNT_TOKENS == 13
 fn str_from_token_kind(kind Token_Kind) Str {
    match kind {
       TOKEN_EOF => return "end of file"
+      TOKEN_INTEGER => return "integer"
       TOKEN_SYMBOL => return "symbol"
 
       TOKEN_COLON => return "':'"
@@ -142,7 +144,7 @@ fn lexer_char(name Str) char {
    return lexer_consume()
 }
 
-assert COUNT_TOKENS == 12
+assert COUNT_TOKENS == 13
 fn lexer_next() Token {
    if lexer.peeked {
       lexer.peeked = false
@@ -170,6 +172,15 @@ fn lexer_next() Token {
 
    if lexer.str.size == 0 {
       token.kind = TOKEN_EOF
+   } else if isdigit(*lexer.str.data) {
+      token.kind = TOKEN_INTEGER
+      token.data = 0
+
+      for lexer.str.size > 0 && isdigit(*lexer.str.data) {
+         token.data = token.data * 10 + (lexer_consume() - '0') as int
+      }
+
+      token.str.size -= lexer.str.size
    } else {
       token.kind = TOKEN_SYMBOL
 

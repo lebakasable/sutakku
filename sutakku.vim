@@ -12,9 +12,11 @@ endif
 
 setlocal commentstring=//%s
 
+syntax match Number "\<[0-9][0-9_]*\>"
 syntax match Comment "//.*" contains=Todo
 syntax keyword Todo TODO XXX FIXME NOTE
 syntax keyword Keyword type var rule run trace
 syntax match Operator "<-\|->"
+syntax keyword Type Integer
 
 let b:current_syntax = "sutakku"
