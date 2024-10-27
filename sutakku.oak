@@ -299,6 +299,10 @@ fn stmt_expand(stmt Node_Index) {
          }
       }
       NODE_VAR => {
+         if nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str == "Integer" {
+            &stderr << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.pos << "error: cannot expand infinite type '" << nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].token.str << "'\n"
+            exit(1)
+         }
          for let expr = nodes[nodes[stmt].nodes[NODE_VAR_TYPE]].nodes[NODE_TYPE_EXPRS], expr != 0, expr = nodes[expr].next {
             stmt_expand(stmt_substitute(nodes[stmt].nodes[NODE_VAR_BODY], nodes[stmt].nodes[NODE_VAR_NAME], expr))
          }
